@@ -1,0 +1,163 @@
+PROPAGATEINCOMINGMVRS
+exports = function(changeEvent) {
+    const collection = context.services.get("Cluster1").db("US").collection("crealms");
+    const batch = collection.initializeUnorderedBulkOp();
+    const { fullDocument } = changeEvent;
+    const { mvr } = fullDocument;
+    
+    const mvrRealmKeys = Object.keys(mvr);
+  
+    mvrRealmKeys.forEach((key) => {
+      const mvrMap = mvr[key];
+      const active = Object.values(mvrMap).filter(({ lvl }) => lvl > 0).length > 0;
+      batch
+        .find({ _id: key })
+        .upsert()
+        .updateOne({
+          $set: {
+            mvr: {
+              active,
+              map: mvrMap
+            }
+          }
+        });
+    });
+    batch.execute();
+  };
+
+
+
+
+
+
+PropagateIncomingRuns
+const clamp = (a, b, c) => Math.max(b, Math.min(c, a));
+
+const mapMinGoals = {
+    244: 30,
+    245: 33,
+    247: 39,
+    252: 42,
+    250: 36,
+    246: 36,
+    251: 33,
+    248: 39,
+    249: 42,
+    353: 36,
+    369: 38,
+    370: 32,
+    375: 27, // shadowlands start
+    376: 27,
+    377: 27,
+    378: 27,
+    379: 27,
+    380: 27,
+    381: 27,
+    382: 27
+};
+
+const getRunRatingFromGoalAndDuration = (goal, duration) => 8 - clamp(
+        Math.ceil(
+            (5 * duration) / goal,
+        ),
+        3,
+        8,
+    );
+
+const getPointsForRun = ({
+    end,
+    map,
+    lvl,
+    dur,
+  }) => {
+    const mapGoalMin = mapMinGoals[map];
+    const mapRating = getRunRatingFromGoalAndDuration(mapGoalMin * 1000 * 60, dur);
+    const ratingBonuses = [0, 1, 3, 6, 8, 9];
+  
+    return (lvl * 2) // lvl bonus
+      + (Math.floor(lvl / 3)) // tier bonus
+      + ratingBonuses[mapRating] // speed bonus
+      + (Math.floor(mapGoalMin / 3) - 9); // map bonus
+  };
+
+exports = function(changeEvent) {
+    const collection = context.services.get("Cluster1").db("US").collection("characters");
+    const batch = collection.initializeUnorderedBulkOp();
+    const { fullDocument } = changeEvent;
+    const { dur, end, lvl, map, p, who } = fullDocument;
+    const runId = `${lvl}-${map}-${dur}-${end}`;
+  
+    // const score_CIRCUIT_CUP = getPointsForRun({ end, map, lvl, dur });
+    // const abbr_CIRCUIT_CUP = 'cc';
+    
+    const getPartialNameArrayForName = (name) => {
+        const slices = Array.from({ length: name.length - 1 }, (v, k) => k + 2);
+        return slices.map(slcId => name.slice(0, slcId));
+    };
+
+    const fmtRunForMember = (mbrWeFormatFor) => {
+      const newWho = who.map((runMember) => {
+        const { pid, nme, rlm, spc } = runMember;
+        if (pid === mbrWeFormatFor.pid && nme === mbrWeFormatFor.nme && rlm === mbrWeFormatFor.rlm) {
+          return { spc };
+        }
+        
+        return { nme, rlm, spc };
+      });
+      return {
+        map,
+        lvl,
+        end,
+        dur,
+        who: newWho
+      };
+    };
+    
+    const spcToClsMap = {
+      62: 8, 63: 8, 64: 8, 65: 2, 66: 2, 70: 2,
+      71: 1, 72: 1, 73: 1, 102: 11, 103: 11, 104: 11,
+      105: 11, 250: 6, 251: 6, 252: 6, 253: 3,
+      254: 3, 255: 3, 256: 5, 257: 5, 258: 5,
+      259: 4, 260: 4, 261: 4, 262: 7, 263: 7,
+      264: 7, 265: 9, 266: 9, 267: 9, 268: 10,
+      269: 10, 270: 10, 577: 12, 581: 12
+    };
+    
+    const spcToRolMap = {
+      62: 3, 63: 3, 64: 3, 65: 2, 66: 1, 70: 3,
+      71: 3, 72: 3, 73: 1, 102: 3, 103: 3, 104: 1,
+      105: 2, 250: 1, 251: 3, 252: 3, 253: 3,
+      254: 3, 255: 3, 256: 2, 257: 2, 258: 3,
+      259: 3, 260: 3, 261: 3, 262: 3, 263: 3,
+      264: 2, 265: 3, 266: 3, 267: 3, 268: 1,
+      269: 3, 270: 2, 577: 3, 581: 1
+    };
+    const getRolFromSpc = (spc) => spcToRolMap[spc] || 0;
+    const getClsFromSpc = (spc) => spcToClsMap[spc] || 0;
+  
+    who.forEach((mbr) => {
+      const { nme, rlm, fac, spc, crlm } = mbr;
+      const rol = getRolFromSpc(spc);
+      const cls = getClsFromSpc(spc);
+      const int = Date.now();
+  
+      batch
+        .find({ nme, rlm, fac, cls })
+        .upsert()
+        .updateOne({
+          $set: {
+            [`hx.prd.${p}.runs.${runId}`]: fmtRunForMember(mbr),
+          },
+          $setOnInsert: {
+            nme,
+            nme_p: getPartialNameArrayForName(nme),
+            crlm,
+            rlm,
+            fac,
+            cls,
+            int
+          }
+        });
+    });
+    batch.execute();
+  };
