@@ -6,7 +6,7 @@
 
 ## Schema and Storage
 - Source of truth is **BlizzData.US.realms**
-- { id, region, name, category, locale, timezone, type, slug }
+- { id, region, name, category, locale, timezone, type, slug, crlm }
 
 
 ## Involved Utilities
